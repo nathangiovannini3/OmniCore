@@ -3,7 +3,7 @@ using System.Text;
 
 namespace OmniCore.Model.Utilities
 {
-    public class Bytes
+    public class Bytes : IComparable<Bytes>
     {
         private const int PAGE_SIZE = 256;
         public byte[] ByteBuffer = new byte[PAGE_SIZE];
@@ -93,17 +93,23 @@ namespace OmniCore.Model.Utilities
 
         public Bytes Append(byte[] buffer)
         {
-            EnsureBufferSpace(buffer.Length);
-            Buffer.BlockCopy(buffer, 0, this.ByteBuffer, this.Length, buffer.Length);
-            this.Length += buffer.Length;
+            if (buffer != null)
+            {
+                EnsureBufferSpace(buffer.Length);
+                Buffer.BlockCopy(buffer, 0, this.ByteBuffer, this.Length, buffer.Length);
+                this.Length += buffer.Length;
+            }
             return this;
         }
 
         public Bytes Append(Bytes otherBytes)
         {
-            EnsureBufferSpace(otherBytes.Length);
-            Buffer.BlockCopy(otherBytes.ByteBuffer, 0, this.ByteBuffer, this.Length, otherBytes.Length);
-            this.Length += otherBytes.Length;
+            if (otherBytes != null)
+            {
+                EnsureBufferSpace(otherBytes.Length);
+                Buffer.BlockCopy(otherBytes.ByteBuffer, 0, this.ByteBuffer, this.Length, otherBytes.Length);
+                this.Length += otherBytes.Length;
+            }
             return this;
         }
 
@@ -176,6 +182,22 @@ namespace OmniCore.Model.Utilities
         public override string ToString()
         {
             return this.ToHex();
+        }
+
+        public int CompareTo(Bytes other)
+        {
+            if (this.Length > other.Length)
+                return 1;
+
+            if (this.Length < other.Length)
+                return -1;
+
+            for(int i=0; i<this.Length; i++)
+            {
+                if (this[i] != other[i])
+                    return this[i].CompareTo(other[i]);
+            }
+            return 0;
         }
     }
 }

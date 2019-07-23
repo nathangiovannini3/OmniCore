@@ -1,4 +1,5 @@
-﻿using System;
+﻿using OmniCore.Model.Enums;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -8,7 +9,6 @@ namespace OmniCore.Model.Interfaces
 {
     public interface IMessageExchangeProvider
     {
-        Task<IMessageExchange> GetMessageExchanger(IMessageExchangeParameters messageExchangeParameters, IPod pod,
-            IMessageProgress messageProgress, CancellationToken ct);
+        Task<IMessageExchange> GetMessageExchange(IMessageExchangeParameters messageExchangeParameters, CancellationToken token, IPod pod);
     }
 }

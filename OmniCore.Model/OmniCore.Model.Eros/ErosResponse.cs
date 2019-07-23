@@ -1,8 +1,10 @@
 ﻿using OmniCore.Model.Enums;
+using OmniCore.Model.Eros.Data;
 using OmniCore.Model.Exceptions;
 using OmniCore.Model.Interfaces;
 using OmniCore.Model.Utilities;
 using System;
+using System.Diagnostics;
 
 namespace OmniCore.Model.Eros
 {
@@ -12,35 +14,36 @@ namespace OmniCore.Model.Eros
 
         public Bytes PartData { get; set; }
 
-        public void Parse(IPod pod)
+        public void Parse(IPod pod, IMessageExchange exchange)
         {
+            Debug.WriteLine($"Parsing response type {PartType}");
             switch (PartType)
             {
                 case PartType.ResponseVersionInfo:
-                    parse_version_response(pod);
+                    ParseVersionResponse(pod, exchange);
                     break;
                 case PartType.ResponseDetailInfoResponse:
-                    parse_information_response(pod);
+                    ParseInformationResponse(pod, exchange);
                     break;
                 case PartType.ResponseResyncResponse:
-                    parse_resync_response(pod);
+                    ParseResyncResponse(pod as ErosPod);
                     break;
                 case PartType.ResponseStatus:
-                    parse_status_response(pod);
+                    ParseStatusResponse(pod, exchange);
                     break;
                 default:
-                    throw new OmniCoreException($"Unknown response type {PartType}");
+                    throw new OmniCoreException(FailureType.PodResponseUnrecognized, $"Unknown response type {PartType}");
             }
         }
 
-        private void parse_version_response(IPod pod)
+        private void ParseVersionResponse(IPod pod, IMessageExchange exchange)
         {
             bool lengthyResponse = false;
-            pod.LastUpdated = DateTime.UtcNow;
-            int i = 1;
+            pod.Created = DateTimeOffset.UtcNow;
+            int i = 0;
             if (PartData.Length == 27)
             {
-                pod.Version7Bytes = PartData.ToArray(i, i + 7);
+                pod.VersionUnknown = PartData.ToHex(i, i + 7);
                 i += 7;
                 lengthyResponse = true;
             }
@@ -55,32 +58,38 @@ namespace OmniCore.Model.Eros
             var iz = PartData.Byte(i++);
             pod.VersionPi = $"{ix}.{iy}.{iz}";
 
-            pod.VersionByte = PartData.Byte(i++);
-            pod.Progress = (PodProgress)(PartData.Byte(i++) & 0x0F);
+            pod.VersionUnknown += PartData.ToHex(i++, i);
+
+            var status = new ErosStatus() { Created = DateTimeOffset.UtcNow };
+            status.Progress = (PodProgress)(PartData.Byte(i++) & 0x0F);
+
             pod.Lot = PartData.DWord(i);
             pod.Serial = PartData.DWord(i + 4);
             i += 8;
             if (!lengthyResponse)
             {
                 var rb = PartData.Byte(i++);
-                pod.RadioLowGain = rb >> 6;
-                pod.RadioRssi = rb & 0b00111111;
+                exchange.Statistics.PodLowGain = rb >> 6;
+                exchange.Statistics.PodRssi = rb & 0b00111111;
                 pod.RadioAddress = PartData.DWord(i);
             }
             else
                 pod.RadioAddress = PartData.DWord(i);
+            exchange.Result.Status = status;
         }
 
-        private void parse_information_response(IPod pod)
+        private void ParseInformationResponse(IPod pod, IMessageExchange exchange)
         {
-            int i = 1;
+            int i = 0;
             var rt = PartData.Byte(i++);
             switch (rt)
             {
                 case 0x01:
-                    pod.AlertW278 = PartData.Word(i);
+                    var alrs = new ErosAlertStates();
+
+                    alrs.AlertW278 = PartData.Word(i);
                     i += 2;
-                    pod.AlertStates = new ushort[]
+                    alrs.AlertStates = new uint[]
                     {
                         PartData.Word(i),
                         PartData.Word(i + 2),
@@ -91,80 +100,92 @@ namespace OmniCore.Model.Eros
                         PartData.Word(i + 12),
                         PartData.Word(i + 14),
                     };
+                    exchange.Result.AlertStates = alrs;
                     break;
                 case 0x02:
-                    pod.LastUpdated = DateTime.UtcNow;
-                    pod.Faulted = true;
-                    pod.Progress = (PodProgress)PartData.Byte(i++);
-                    parse_delivery_state(pod, PartData.Byte(i++));
-                    pod.NotDeliveredInsulin = PartData.Byte(i++) * 0.05m;
+                    var status = new ErosStatus();
+                    var fault = new ErosFault();
+
+                    status.Created = DateTimeOffset.UtcNow;
+                    status.Progress = (PodProgress)PartData.Byte(i++);
+                    ParseDeliveryState(status, PartData.Byte(i++));
+                    status.NotDeliveredInsulin = PartData.Byte(i++) * 0.05m;
                     pod.MessageSequence = PartData.Byte(i++);
-                    pod.DeliveredInsulin = PartData.Byte(i++) * 0.05m;
-                    pod.FaultCode = PartData.Byte(i++);
-                    pod.FaultRelativeTime = PartData.Word(i);
-                    pod.Reservoir = PartData.Word(i + 2) * 0.05m;
-                    pod.ActiveMinutes = PartData.Word(i + 4);
+                    status.DeliveredInsulin = PartData.Byte(i++) * 0.05m;
+
+                    fault.FaultCode = PartData.Byte(i++);
+                    fault.FaultRelativeTime = PartData.Word(i);
+
+                    status.Reservoir = PartData.Word(i + 2) * 0.05m;
+                    status.ActiveMinutes = PartData.Word(i + 4);
                     i += 6;
-                    pod.AlertMask = PartData.Byte(i++);
-                    pod.TableAccessFault = PartData.Byte(i++);
+                    status.AlertMask = PartData.Byte(i++);
+                    fault.TableAccessFault = PartData.Byte(i++);
                     byte f17 = PartData.Byte(i++);
-                    pod.InsulinStateTableCorruption = f17 >> 7;
-                    pod.InternalFaultVariables = (f17 & 0x60) >> 6;
-                    pod.FaultedWhileImmediateBolus = (f17 & 0x10) > 0;
-                    pod.ProgressBeforeFault = (PodProgress)(f17 & 0x0F);
+                    fault.InsulinStateTableCorruption = f17 >> 7;
+                    fault.InternalFaultVariables = (f17 & 0x60) >> 6;
+                    fault.FaultedWhileImmediateBolus = (f17 & 0x10) > 0;
+                    fault.ProgressBeforeFault = (PodProgress)(f17 & 0x0F);
                     byte r18 = PartData.Byte(i++);
-                    pod.RadioLowGain = (r18 & 0xC0) >> 6;
-                    pod.RadioRssi = r18 & 0x3F;
-                    pod.ProgressBeforeFault2 = (PodProgress)(PartData.Byte(i++) & 0x0F);
-                    pod.FaultInformation2LastWord = PartData.Byte(i++);
+
+                    exchange.Statistics.PodLowGain = (r18 & 0xC0) >> 6;
+                    exchange.Statistics.PodRssi = r18 & 0x3F;
+
+                    fault.ProgressBeforeFault2 = (PodProgress)(PartData.Byte(i++) & 0x0F);
+                    fault.FaultInformation2LastWord = PartData.Byte(i++);
+
+                    exchange.Result.Status = status;
+                    exchange.Result.Fault = fault;
                     break;
                 default:
-                    throw new OmniCoreException($"Failed to parse the information response of type {rt}");
+                    throw new OmniCoreException(FailureType.PodResponseUnrecognized, $"Failed to parse the information response of type {rt}");
             }
         }
 
-        private void parse_delivery_state(IPod pod, byte delivery_state)
+        private void ParseDeliveryState(IStatus podStatus, byte delivery_state)
         {
             if ((delivery_state & 8) > 0)
-                pod.BolusState = BolusState.Extended;
+                podStatus.BolusState = BolusState.Extended;
             else if ((delivery_state & 4) > 0)
-                pod.BolusState = BolusState.Immediate;
+                podStatus.BolusState = BolusState.Immediate;
             else
-                pod.BolusState = BolusState.Inactive;
+                podStatus.BolusState = BolusState.Inactive;
 
             if ((delivery_state & 2) > 0)
-                pod.BasalState = BasalState.Temporary;
+                podStatus.BasalState = BasalState.Temporary;
             else if ((delivery_state & 1) > 0)
-                pod.BasalState = BasalState.Scheduled;
+                podStatus.BasalState = BasalState.Scheduled;
             else
-                pod.BasalState = BasalState.Suspended;
+                podStatus.BasalState = BasalState.Suspended;
         }
 
-        private void parse_resync_response(IPod pod)
+        private void ParseResyncResponse(ErosPod pod)
         {
-            if (PartData[1] == 0x14)
-                pod.NonceSync = PartData.Word(2);
+            if (PartData[0] == 0x14)
+                pod.RuntimeVariables.NonceSync = PartData.Word(1);
             else
-                throw new OmniCoreException($"Unknown resync request {PartData} from pod");
+                throw new OmniCoreException(FailureType.PodResponseUnrecognized, $"Unknown resync request {PartData} from pod");
         }
 
-        private void parse_status_response(IPod pod)
+        private void ParseStatusResponse(IPod pod, IMessageExchange exchange)
         {
-            pod.LastUpdated = DateTime.UtcNow;
+            var status = new ErosStatus();
+            status.Created = DateTimeOffset.UtcNow;
             var s0 = PartData[0];
             uint s1 = PartData.DWord(1);
             uint s2 = PartData.DWord(5);
 
-            parse_delivery_state(pod, (byte)(s0 >> 4));
-            pod.Progress = (PodProgress)(s0 & 0xF);
+            ParseDeliveryState(status, (byte)(s0 >> 4));
+            status.Progress = (PodProgress)(s0 & 0xF);
 
             pod.MessageSequence = (int)(s1 & 0x00007800) >> 11;
-            pod.DeliveredInsulin = ((s1 & 0x0FFF8000) >> 15) * 0.05m;
-            pod.NotDeliveredInsulin = (s1 & 0x000007FF) * 0.05m;
-            pod.Faulted = ((s2 >> 31) != 0);
-            pod.AlertMask = (byte)((s2 >> 23) & 0xFF);
-            pod.ActiveMinutes = (uint)((s2 & 0x007FFC00) >> 10);
-            pod.Reservoir = (s2 & 0x000003FF) * 0.05m;
+            status.DeliveredInsulin = ((s1 & 0x0FFF8000) >> 15) * 0.05m;
+            status.NotDeliveredInsulin = (s1 & 0x000007FF) * 0.05m;
+            status.Faulted = ((s2 >> 31) != 0);
+            status.AlertMask = (byte)((s2 >> 23) & 0xFF);
+            status.ActiveMinutes = (uint)((s2 & 0x007FFC00) >> 10);
+            status.Reservoir = (s2 & 0x000003FF) * 0.05m;
+            exchange.Result.Status = status;
         }
     }
 }
