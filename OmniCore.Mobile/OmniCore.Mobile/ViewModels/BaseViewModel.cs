@@ -1,109 +1,50 @@
-﻿using OmniCore.Mobile.Base;
-using OmniCore.Model.Interfaces;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading.Tasks;
-using OmniCore.Model.Enums;
-using Xamarin.Forms;
 
 namespace OmniCore.Mobile.ViewModels
 {
-    public abstract class BaseViewModel : PropertyChangedImpl, IDisposable
+    public class BaseViewModel : INotifyPropertyChanged
     {
-        public IPod Pod { get; set; }
-
-        public IConversation ActiveConversation { get; set; }
-
-        public bool IsPodRunning { get; set; }
-
-        public bool IsInConversation { get; set; }
-
-        public bool CanRunCommand => IsPodRunning & !IsInConversation;
-
-        protected List<IDisposable> Disposables = new List<IDisposable>();
-
-        public BaseViewModel()
+        bool isBusy = false;
+        public bool IsBusy
         {
-            MessagingCenter.Subscribe<IPodProvider>(this, MessagingConstants.PodsChanged, (pp) =>
-            {
-                this.Pod = pp.SinglePod;
-                var podState = this.Pod?.LastStatus?.Progress;
-                IsPodRunning = podState != null && podState.Value >= PodProgress.Running &&
-                             podState.Value <= PodProgress.RunningLow;
-                IsInConversation = false;
-                ActiveConversation = null;
-                OnPropertyChanged(nameof(CanRunCommand));
-            });
-
-            MessagingCenter.Subscribe<IConversation>(this, MessagingConstants.ConversationStarted, (conversation)
-                =>
-            {
-                IsInConversation = true;
-                ActiveConversation = conversation;
-                OnPropertyChanged(nameof(CanRunCommand));
-            });
-
-            MessagingCenter.Subscribe<IConversation>(this, MessagingConstants.ConversationEnded, (conversation)
-                =>
-            {
-                IsInConversation = false;
-                ActiveConversation = null;
-                OnPropertyChanged(nameof(CanRunCommand));
-            });
+            get { return isBusy; }
+            set { SetProperty(ref isBusy, value); }
         }
 
-        protected abstract void OnDisposeManagedResources();
-
-        protected abstract Task<BaseViewModel> BindData();
-
-        public async Task<BaseViewModel> DataBind()
+        string title = string.Empty;
+        public string Title
         {
-            Pod = App.Instance.PodProvider.SinglePod;
-            await BindData();
-            return this;
+            get { return title; }
+            set { SetProperty(ref title, value); }
         }
 
-        protected bool disposedValue = false; // To detect redundant calls
-        protected virtual void Dispose(bool disposing)
+        protected bool SetProperty<T>(ref T backingStore, T value,
+            [CallerMemberName]string propertyName = "",
+            Action onChanged = null)
         {
-            if (!disposedValue)
-            {
-                if (disposing)
-                {
-                    MessagingCenter.Unsubscribe<IPodProvider>(this, MessagingConstants.PodsChanged);
-                    MessagingCenter.Unsubscribe<IConversation>(this, MessagingConstants.ConversationStarted);
-                    MessagingCenter.Unsubscribe<IConversation>(this, MessagingConstants.ConversationEnded);
-                    foreach(var disposable in Disposables)
-                    {
-                        disposable.Dispose();
-                    }
-                    Disposables.Clear();
-                    OnDisposeManagedResources();
-                }
+            if (EqualityComparer<T>.Default.Equals(backingStore, value))
+                return false;
 
-                // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.
-                // TODO: set large fields to null.
-
-                disposedValue = true;
-            }
+            backingStore = value;
+            onChanged?.Invoke();
+            OnPropertyChanged(propertyName);
+            return true;
         }
 
-        // TODO: override a finalizer only if Dispose(bool disposing) above has code to free unmanaged resources.
-        // ~BaseViewModel()
-        // {
-        //   // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
-        //   Dispose(false);
-        // }
-
-        // This code added to correctly implement the disposable pattern.
-        public void Dispose()
+        #region INotifyPropertyChanged
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
         {
-            // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
-            Dispose(true);
-            // TODO: uncomment the following line if the finalizer is overridden above.
-            // GC.SuppressFinalize(this);
-        }
+            var changed = PropertyChanged;
+            if (changed == null)
+                return;
 
+            changed.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+        #endregion
     }
 }
