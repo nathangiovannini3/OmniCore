@@ -1,5 +1,3 @@
-using OmniCore.Model.Eros.Data;
-using OmniCore.Model.Interfaces;
 using OmniCore.Model.Utilities;
 
 namespace OmniCore.Model.Eros
@@ -10,45 +8,45 @@ namespace OmniCore.Model.Eros
         public static uint FAKE_NONCE = 0xD012FA62;
         private uint[] table;
 
-        private ErosPod Pod;
+        public Pod Pod { get; private set; }
 
-        public Nonce(ErosPod pod)
+        public Nonce(Pod pod)
         {
-            Pod = pod;
-            Pod.RuntimeVariables.NonceSync = null;
+            this.Pod = pod;
+            this.Pod.NonceSync = null;
 
-            if (pod.RuntimeVariables.LastNonce.HasValue)
+            if (pod.LastNonce.HasValue)
             {
-                var nonce_ptr = this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, Pod.RuntimeVariables.NonceSeed);
+                var nonce_ptr = this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, this.Pod.NonceSeed);
                 int nonce_runs = 0;
-                uint nonce_generated = Pod.RuntimeVariables.LastNonce.Value ^ FAKE_NONCE;
-                while (nonce_generated != Pod.RuntimeVariables.LastNonce)
+                uint nonce_generated = pod.LastNonce.Value ^ FAKE_NONCE;
+                while (nonce_generated != pod.LastNonce)
                 {
                     nonce_generated = GetNextInternal(ref nonce_ptr);
                     nonce_runs++;
                 }
-                Pod.RuntimeVariables.NonceRuns = nonce_runs;
-                Pod.RuntimeVariables.NoncePtr = nonce_ptr;
+                this.Pod.NonceRuns = nonce_runs;
+                this.Pod.NoncePtr = nonce_ptr;
             }
             else
             {
-                Pod.RuntimeVariables.NonceRuns = 0;
-                Pod.RuntimeVariables.NonceSeed = 0;
-                Pod.RuntimeVariables.NoncePtr = this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, 0);
+                this.Pod.NonceRuns = 0;
+                this.Pod.NonceSeed = 0;
+                this.Pod.NoncePtr = this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, 0);
             }
         }
 
         public uint GetNext()
         {
-            if (Pod.RuntimeVariables.NonceRuns++ > 25)
-                Pod.RuntimeVariables.LastNonce = FAKE_NONCE;
+            if (this.Pod.NonceRuns++ > 25)
+                this.Pod.LastNonce = FAKE_NONCE;
             else
             {
-                var ptr = Pod.RuntimeVariables.NoncePtr;
-                Pod.RuntimeVariables.LastNonce = GetNextInternal(ref ptr);
-                Pod.RuntimeVariables.NoncePtr = ptr;
+                var ptr = this.Pod.NoncePtr;
+                this.Pod.LastNonce = GetNextInternal(ref ptr);
+                this.Pod.NoncePtr = ptr;
             }
-            return Pod.RuntimeVariables.LastNonce.Value;
+            return this.Pod.LastNonce.Value;
         }
 
         private uint GetNextInternal(ref int nonce_ptr)
@@ -61,17 +59,17 @@ namespace OmniCore.Model.Eros
 
         public void Reset()
         {
-            Pod.RuntimeVariables.NonceRuns = 32;
+            this.Pod.NonceRuns = 32;
         }
 
 	    public void Sync(int msgSequence)
         {
-            var w_sum = (Pod.RuntimeVariables.LastNonce & 0xFFFF) + (CrcUtil.Crc16Table[msgSequence] & 0xFFFF)
+            var w_sum = (this.Pod.LastNonce & 0xFFFF) + (CrcUtil.Crc16Table[msgSequence] & 0xFFFF)
                         + (this.Pod.Lot.Value & 0xFFFF) + (this.Pod.Serial.Value & 0xFFFF);
-            Pod.RuntimeVariables.NonceSeed = (uint)((w_sum & 0xFFFF) ^ Pod.RuntimeVariables.NonceSync) & 0xff;
-            Pod.RuntimeVariables.NonceRuns = 0;
-            Pod.RuntimeVariables.NonceSync = null;
-            Pod.RuntimeVariables.NoncePtr = this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, Pod.RuntimeVariables.NonceSeed);
+            this.Pod.NonceSeed = (uint)((w_sum & 0xFFFF) ^ this.Pod.NonceSync) & 0xff;
+            this.Pod.NonceRuns = 0;
+            this.Pod.NonceSync = null;
+            this.Initialize(this.Pod.Lot.Value, this.Pod.Serial.Value, this.Pod.NonceSeed);
         }
 
         private uint Shuffle()

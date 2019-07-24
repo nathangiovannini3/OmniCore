@@ -10,12 +10,12 @@ using Xamarin.Forms.Xaml;
 namespace OmniCore.Mobile.Views
 {
     [XamlCompilation(XamlCompilationOptions.Compile)]
-    public partial class MainPage : Shell
+    public partial class MainPage : TabbedPage
     {
         public MainPage()
         {
             InitializeComponent();
-            //MainShell.Items
+            this.CurrentPage = this.Children.Last();
         }
     }
 }

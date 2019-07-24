@@ -8,22 +8,8 @@ namespace OmniCore.Model.Interfaces
 {
     public interface IMessageExchange
     {
-        Task InitializeExchange();
-        Task FinalizeExchange();
-        Task<IMessage> GetResponse(IMessage request);
-
-        string ActionText { get; set; }
-        bool CanBeCanceled { get; set; }
-        bool Waiting { get; set; }
-        bool Running { get; set; }
-        bool Finished { get; set; }
-        int Progress { get; set; }
-        CancellationToken Token { get; }
-        void SetException(Exception exception);
-
-        IMessageExchangeResult Result { get; }
-        IMessageExchangeStatistics Statistics { get; }
-        IMessageExchangeParameters Parameters { get; }
-        IPod Pod { get; }
+        Task InitializeExchange(IMessageProgress messageProgress, CancellationToken ct);
+        Task<IMessage> GetResponse(IMessage request, IMessageProgress messageProgress, CancellationToken ct);
+        PodCommandResult ParseResponse(IMessage response, IPod pod);
     }
 }
